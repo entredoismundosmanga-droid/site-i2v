@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { apiUpload, apiGenerate, apiStatus } from "@/lib/api";
+import { apiUpload, apiGenerate, apiStatus } from "../lib/api";
 
 export default function Page() {
   const [img1, setImg1] = useState<File | null>(null);
