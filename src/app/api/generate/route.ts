@@ -26,7 +26,10 @@ export async function POST(req: NextRequest) {
     body: JSON.stringify(payload),
   });
 
-  if (!r.ok) return NextResponse.json({ error: await r.text() }, { status: r.status });
+  if (!r.ok) {
+    const err = await r.text();
+    return NextResponse.json({ error: err }, { status: r.status });
+  }
   const gen = await r.json();
   return NextResponse.json({ job_id: gen.id });
 }
