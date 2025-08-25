@@ -1,148 +1,137 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
+
+type GenResp = { ok: boolean; id?: string; error?: string };
+type PollResp = { ok: boolean; status?: string; video_url?: string; error?: string };
 
 export default function Page() {
-  const [f1, setF1] = useState<File | null>(null);
-  const [f2, setF2] = useState<File | null>(null);
-  const [prompt, setPrompt] = useState(
-    "Câmera dolly-in suave, estilo anime, Kael cabelo cinza e marca do sol sob a roupa"
-  );
+  const f1Ref = useRef<HTMLInputElement>(null);
+  const f2Ref = useRef<HTMLInputElement>(null);
+
+  const [prompt, setPrompt] = useState("");
   const [neg, setNeg] = useState("texto, logos, distorções, membros extras");
   const [ar, setAr] = useState("9:16");
-  const [busy, setBusy] = useState(false);
-  const [logs, setLogs] = useState<string[]>([]);
-  const [videoUrl, setVideoUrl] = useState<string | null>(null);
 
-  function log(msg: string) {
-    setLogs((prev) => [...prev, msg]);
+  const [log, setLog] = useState<string[]>([]);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const pushLog = (s: string) => setLog((L) => [...L, s]);
+
+  async function uploadOne(file: File) {
+    const fd = new FormData();
+    fd.append("file", file);
+    const r = await fetch("/api/upload", { method: "POST", body: fd });
+    const j = await r.json();
+    if (!r.ok || !j?.ok) throw new Error(j?.error || `upload falhou: ${r.status}`);
+    return j.url as string;
   }
 
-  async function handleClick() {
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
     setVideoUrl(null);
-    setLogs([]);
-    if (!f1) {
-      log("❗ Selecione ao menos 1 imagem (Frame 1).");
-      return;
-    }
-    setBusy(true);
+    setLog([]);
+
     try {
-      log("⬆️ Fazendo upload das imagens...");
-      const upload = async (file: File) => {
-        const body = new FormData();
-        body.append("file", file);
-        const res = await fetch("/api/upload", { method: "POST", body });
-        if (!res.ok) throw new Error(`upload falhou: ${await res.text()}`);
-        const j = await res.json();
-        return j.url as string;
-      };
+      // 1) Uploads
+      pushLog("⬆️ Fazendo upload das imagens...");
+      const urls: string[] = [];
+      const f1 = f1Ref.current?.files?.[0];
+      if (!f1) throw new Error("Selecione pelo menos o Frame 1.");
+      urls.push(await uploadOne(f1));
+      const f2 = f2Ref.current?.files?.[0];
+      if (f2) urls.push(await uploadOne(f2));
 
-      const frame0_url = await upload(f1);
-      let frame1_url: string | undefined;
-      if (f2) frame1_url = await upload(f2);
-
-      log("🤖 Chamando a Luma...");
-      const genRes = await fetch("/api/generate", {
+      // 2) Chamada Luma (criar geração)
+      pushLog("🤖 Chamando a Luma...");
+      const create = await fetch("/api/generate", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt,
           negative_prompt: neg,
           aspect_ratio: ar,
-          frame0_url,
-          frame1_url,
-        }),
+          frame0_url: urls[0],
+          frame1_url: urls[1] || null
+        })
       });
+      const cj: GenResp = await create.json();
+      if (!create.ok || !cj.ok || !cj.id) throw new Error(cj.error || "Falha ao criar geração");
 
-      const genText = await genRes.text();
-      let genJson: any = {};
-      try { genJson = JSON.parse(genText); } catch {}
-      if (!genRes.ok || genJson.ok === false) {
-        throw new Error(genJson.error || genText || "erro desconhecido em /api/generate");
-      }
-
-      const { job_id } = genJson;
-      log(`⏱️ Job criado: ${job_id}. Fazendo polling...`);
-
-      // polling simples
+      // 3) Poll até terminar
+      pushLog("⏳ Gerando vídeo (isso pode levar ~1–3 min)...");
+      let done = false;
       let tries = 0;
-      while (tries < 120) { // ~2 min
-        await new Promise((r) => setTimeout(r, 1000));
-        const sRes = await fetch(`/api/status?job_id=${encodeURIComponent(job_id)}`);
-        const sText = await sRes.text();
-        let sJson: any = {};
-        try { sJson = JSON.parse(sText); } catch {}
-        if (!sRes.ok) throw new Error(sText);
+      while (!done && tries < 120) {
+        await new Promise((r) => setTimeout(r, 3000));
+        const poll = await fetch(`/api/generate?id=${encodeURIComponent(cj.id)}`);
+        const pj: PollResp = await poll.json();
 
-        if (sJson.state === "completed" && sJson.video) {
-          log("✅ Vídeo pronto!");
-          setVideoUrl(sJson.video);
-          break;
-        } else if (sJson.state === "failed") {
-          throw new Error(sJson.error || "O provedor retornou failed");
-        } else {
-          if (tries % 5 === 0) log(`⌛ status: ${sJson.state || "processando"}...`);
+        if (!poll.ok || !pj.ok) throw new Error(pj.error || "Erro ao consultar geração");
+
+        if (pj.status) pushLog(`• Status: ${pj.status}`);
+        if (pj.status === "completed" && pj.video_url) {
+          setVideoUrl(pj.video_url);
+          pushLog("✅ Concluído!");
+          done = true;
+        } else if (pj.status === "failed") {
+          throw new Error("Geração falhou");
         }
         tries++;
       }
-      if (!videoUrl && tries >= 120) throw new Error("Timeout aguardando o vídeo");
-    } catch (e: any) {
-      log("❌ " + (e?.message || String(e)));
-    } finally {
-      setBusy(false);
+      if (!done) throw new Error("Tempo excedido aguardando a geração");
+    } catch (err: any) {
+      pushLog(`❌ ${err?.message || String(err)}`);
     }
   }
 
   return (
-    <main style={{ maxWidth: 760, margin: "40px auto", padding: "0 16px" }}>
+    <div style={{ maxWidth: 720, margin: "40px auto", padding: 16 }}>
       <h1>Imagem → Vídeo (Só Vercel)</h1>
-      <p>Envie 1–2 imagens, escreva o prompt e gere o clipe com a Luma.</p>
 
-      <label>Frame 1:<br/>
-        <input type="file" accept="image/*" onChange={e => setF1(e.target.files?.[0] || null)} />
-      </label>
-      <br/><br/>
+      <form onSubmit={onSubmit} style={{ display: "grid", gap: 12 }}>
+        <label>
+          Frame 1:
+          <input type="file" accept="image/*" ref={f1Ref} />
+        </label>
+        <label>
+          Frame 2 (opcional):
+          <input type="file" accept="image/*" ref={f2Ref} />
+        </label>
 
-      <label>Frame 2 (opcional):<br/>
-        <input type="file" accept="image/*" onChange={e => setF2(e.target.files?.[0] || null)} />
-      </label>
-      <br/><br/>
+        <label>
+          Prompt:
+          <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={4} />
+        </label>
 
-      <label>Prompt:<br/>
-        <textarea value={prompt} onChange={e=>setPrompt(e.target.value)} rows={4} style={{width:"100%"}} />
-      </label>
-      <br/>
+        <label>
+          Negative prompt:
+          <input value={neg} onChange={(e) => setNeg(e.target.value)} />
+        </label>
 
-      <label>Negative prompt:<br/>
-        <input value={neg} onChange={e=>setNeg(e.target.value)} style={{width:"100%"}} />
-      </label>
-      <br/>
+        <label>
+          Aspect ratio:
+          <select value={ar} onChange={(e) => setAr(e.target.value)}>
+            <option>9:16</option>
+            <option>1:1</option>
+            <option>16:9</option>
+          </select>
+        </label>
 
-      <label>Aspect ratio:&nbsp;
-        <select value={ar} onChange={e=>setAr(e.target.value)}>
-          <option value="16:9">16:9</option>
-          <option value="9:16">9:16</option>
-          <option value="1:1">1:1</option>
-        </select>
-      </label>
-      <br/><br/>
+        <button type="submit">Gerar vídeo</button>
+      </form>
 
-      <button onClick={handleClick} disabled={busy} style={{padding:"10px 16px"}}>
-        {busy ? "Gerando..." : "Gerar vídeo"}
-      </button>
-
-      <h3 style={{marginTop:24}}>Log</h3>
-      <pre style={{background:"#111", color:"#0f0", padding:12, minHeight:120, whiteSpace:"pre-wrap"}}>
-        {logs.join("\n") || "Sem mensagens ainda."}
+      <h3>Log</h3>
+      <pre style={{ background: "#111", color: "#0f0", padding: 12, borderRadius: 8 }}>
+        {log.join("\n")}
       </pre>
 
       {videoUrl && (
         <>
           <h3>Resultado</h3>
-          <video src={videoUrl} controls style={{width:"100%"}} />
-          <p><a href={videoUrl} target="_blank">Abrir vídeo</a></p>
+          <video src={videoUrl} controls style={{ width: "100%", borderRadius: 12 }} />
+          <p><a href={videoUrl} target="_blank">Abrir direto</a></p>
         </>
       )}
-    </main>
+    </div>
   );
-                                                                 }
+    }
