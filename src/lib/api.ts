@@ -1,5 +1,9 @@
 async function readTextSafe(res: Response) {
-  try { return await res.text(); } catch { return ""; }
+  try {
+    return await res.text();
+  } catch {
+    return "";
+  }
 }
 
 export async function apiUpload(file: File) {
