@@ -11,6 +11,7 @@ export default function Page() {
   const [job, setJob] = useState<string | null>(null);
   const [video, setVideo] = useState<string | null>(null);
   const timer = useRef<any>(null);
+  const [msg, setMsg] = useState<string>("");
 
   async function generate() {
     if (!img1) return alert("Envie pelo menos a primeira imagem");
