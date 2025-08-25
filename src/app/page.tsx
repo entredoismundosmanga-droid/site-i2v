@@ -41,44 +41,4 @@ export default function Page() {
   }, [job]);
 
   return (
-    <main style={{ maxWidth: 920, margin: "40px auto", padding: 16 }}>
-      <h1>Imagem → Vídeo (Só Vercel)</h1>
-      <p>Envie 1–2 imagens, escreva o prompt e gere o clipe com a Luma.</p>
-      <div style={{ display: "grid", gap: 12 }}>
-        <label>
-          Frame 1: <input type="file" accept="image/*" onChange={(e) => setImg1(e.target.files?.[0] || null)} />
-        </label>
-        <label>
-          Frame 2 (opcional): <input type="file" accept="image/*" onChange={(e) => setImg2(e.target.files?.[0] || null)} />
-        </label>
-        <label>
-          Prompt:
-          <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={3} style={{ width: "100%" }} />
-        </label>
-        <label>
-          Negative prompt:
-          <input value={neg} onChange={(e) => setNeg(e.target.value)} style={{ width: "100%" }} />
-        </label>
-        <label>
-          Aspect ratio:
-          <select value={ar} onChange={(e) => setAr(e.target.value)}>
-            <option>16:9</option>
-            <option>9:16</option>
-            <option>1:1</option>
-          </select>
-        </label>
-        <button onClick={generate}>Gerar vídeo</button>
-      </div>
-
-      {job && !video && <p style={{ marginTop: 16 }}>Job: {job} — processando…</p>}
-
-      {video && (
-        <div style={{ marginTop: 24 }}>
-          <h3>Resultado</h3>
-          <video src={video} controls style={{ width: "100%", borderRadius: 12 }} />
-          <p><a href={video} download>Baixar MP4</a></p>
-        </div>
-      )}
-    </main>
-  );
-}
+    <main style={{ maxWidth: 
