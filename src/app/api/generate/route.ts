@@ -1,70 +1,53 @@
 import { NextResponse } from "next/server";
 
-export const runtime = "nodejs";
-
-const LUMA_BASE = "https://api.lumalabs.ai/dream-machine/v1";
-
 export async function POST(req: Request) {
   try {
-    const key = process.env.LUMA_API_KEY;
-    if (!key) return NextResponse.json({ ok: false, error: "Missing LUMA_API_KEY" }, { status: 500 });
+    const body = await req.json();
 
-    const { prompt, negative_prompt, aspect_ratio, frame0_url, frame1_url } = await req.json();
+    const { frame1, frame2, prompt, negativePrompt, aspectRatio } = body;
 
-    if (!prompt || !frame0_url) {
-      return NextResponse.json({ ok: false, error: "prompt e frame0_url são obrigatórios" }, { status: 400 });
+    // 🔑 pega a chave da Luma do ambiente (Vercel Settings → Environment Variables)
+    const apiKey = process.env.LUMA_API_KEY;
+
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: "API key não encontrada no servidor." },
+        { status: 401 }
+      );
     }
 
+    // monta o payload para a Luma
     const payload: any = {
       prompt,
-      negative_prompt,
-      aspect_ratio: aspect_ratio || "9:16",
-      model: "ray-2",
+      negative_prompt: negativePrompt,
+      aspect_ratio: aspectRatio || "9:16",
       keyframes: {
-        frame0: { type: "image", url: frame0_url }
-      }
+        frame0: { type: "image", url: frame1 },
+      },
     };
-    if (frame1_url) payload.keyframes.frame1 = { type: "image", url: frame1_url };
 
-    const r = await fetch(`${LUMA_BASE}/generations`, {
+    if (frame2) {
+      payload.keyframes.frame1 = { type: "image", url: frame2 };
+    }
+
+    // chamada para a API da Luma
+    const res = await fetch("https://api.lumalabs.ai/dream-machine/v1/generations", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${key}`,
-        "Content-Type": "application/json"
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
     });
 
-    const j = await r.json();
-    if (!r.ok) return NextResponse.json({ ok: false, error: j?.detail || "Luma erro" }, { status: r.status });
+    const data = await res.json();
 
-    return NextResponse.json({ ok: true, id: j?.id });
+    if (!res.ok) {
+      return NextResponse.json(data, { status: res.status });
+    }
+
+    return NextResponse.json(data);
   } catch (err: any) {
-    return NextResponse.json({ ok: false, error: String(err?.message || err) }, { status: 500 });
-  }
-}
-
-export async function GET(req: Request) {
-  try {
-    const key = process.env.LUMA_API_KEY;
-    if (!key) return NextResponse.json({ ok: false, error: "Missing LUMA_API_KEY" }, { status: 500 });
-
-    const { searchParams } = new URL(req.url);
-    const id = searchParams.get("id");
-    if (!id) return NextResponse.json({ ok: false, error: "id é obrigatório" }, { status: 400 });
-
-    const r = await fetch(`${LUMA_BASE}/generations/${id}`, {
-      headers: { "Authorization": `Bearer ${key}` }
-    });
-    const j = await r.json();
-
-    if (!r.ok) return NextResponse.json({ ok: false, error: j?.detail || "Luma erro" }, { status: r.status });
-
-    const status = j?.state || j?.status;
-    const video_url = j?.assets?.video || j?.output_video || null;
-
-    return NextResponse.json({ ok: true, status, video_url });
-  } catch (err: any) {
-    return NextResponse.json({ ok: false, error: String(err?.message || err) }, { status: 500 });
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
